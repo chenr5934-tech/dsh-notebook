@@ -35,7 +35,7 @@ dsh 从 **`~/.dsh/profiles/desktop/node_modules`** 解析插件包。本插件�
 ```powershell
 New-Item -ItemType Junction `
   -Path   "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-notebook" `
-  -Target "D:\dsh工作区\PROJECTS-项目\dsh-notebook"
+  -Target "<本包绝对目录>"  # 例如 D:\work\dsh-notebook
 ```
 
 联结不需要管理员权限。如果提示"已存在"，先删掉旧链接（**只删链接，别删目标**）：
@@ -59,7 +59,7 @@ Test-Path "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-notebook\lib\
 **① `dependencies` 里加一行**（注意逗号和引号）：
 
 ```json
-    "dsh-notebook": "file:D:/dsh工作区/PROJECTS-项目/dsh-notebook",
+    "dsh-notebook": "file:<本包绝对目录>",
 ```
 
 **② `dsh.profile.bundles` 数组里加一项**：
@@ -124,7 +124,7 @@ http://127.0.0.1:<端口>/dsh-notebook/
 
 **② 开关能不能写盘**
 
-页面上填项目路径 `D:\dsh工作区\PROJECTS-项目\dsh-notebook` → 载入 → 点开开关。然后：
+页面上填项目路径 `<你的项目绝对路径>` → 载入 → 点开开关。然后：
 
 ```powershell
 Get-ChildItem ".\agent.md",".\project_agent.md"          # 两个文件应出现
