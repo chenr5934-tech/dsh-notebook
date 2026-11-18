@@ -22,7 +22,7 @@
 
 ### D1 · 不写注入器，只写文件
 
-插件不碰 `systemPrompt`。内容以受管区块写进 `agent.md` / `project_agent.md`，由现成加载器读取。
+插件不碰 `systemPrompt`。内容以受管区块写进 `dsh-notebook.md` / `dsh-notebook-project.md`，由现成加载器读取。
 
 **代价**：依赖加载器的候选名配置，多一步手工。
 **收益**：不必重新处理去重、增量、压缩后重建、转义——这些是加载器已经踩过的坑。
@@ -37,7 +37,7 @@
 
 只改 `<!-- dsh-notebook:begin -->` 到 `end` 之间。区块外一行不动。
 
-**理由**：用户可能已经在 `agent.md` 里写了东西。独占会让插件变成破坏者。冒烟测试里专门有一条"区块外内容逐字保留"。
+**理由**：用户可能已经在 `dsh-notebook.md` 里写了东西。独占会让插件变成破坏者。冒烟测试里专门有一条"区块外内容逐字保留"。
 
 ### D4 · 开关 = 区块存在与否
 
@@ -126,7 +126,7 @@ slots 这个服务。多写依赖包名反而会在包名不对时静默失效�
 
 ### D11 · 每条经验带上「哪天几点写的」
 
-`project_agent.md` 的每条前面标 `（2026-11-18 10:37）`。时间放行首而不是行尾：几十条并排时，
+`dsh-notebook-project.md` 的每条前面标 `（2026-11-18 10:37）`。时间放行首而不是行尾：几十条并排时，
 左边缘能一眼扫出哪几条最旧，行尾会参差不齐。精确到分钟 —— 同一天连着写好几条时，
 只到日期就分不出先后，而「这几条是同一轮改的吗」恰恰是最常问的。
 
@@ -212,7 +212,7 @@ V4 会话格式在写入前就校验：`kind` 非空且不能等于裸 `"plugin"
 
 路由挂在宿主自己的 origin 上，浏览器里任何一个页面都能请求到它。原来没有这层校验：
 用 `curl -X POST -H 'Origin: http://evil.example'` 打 `/api/toggle`，实测 **200 且真的落了盘**——
-也就是说随便一个网页都能翻掉某个项目的开关，或者让插件往它指定的目录写 `agent.md`。
+也就是说随便一个网页都能翻掉某个项目的开关，或者让插件往它指定的目录写 `dsh-notebook.md`。
 
 现在写操作（`toggle` / `save` / `settings` / `sync` 的 POST）都要过一道 `guardWrite`：
 
@@ -235,8 +235,8 @@ dsh-notebook/
 ├── ui/index.html       管理界面（原生 JS，无构建）
 ├── test/smoke.mjs      冒烟测试
 ├── scripts/seed.mjs    为本项目播种并重建投影
-├── agent.md            投影：通用经验本
-├── project_agent.md    投影：项目经验本
+├── dsh-notebook.md            投影：通用经验本
+├── dsh-notebook-project.md    投影：项目经验本
 ├── cordis.patch.yml    挂载补丁
 └── README.md
 ```
@@ -271,7 +271,7 @@ dsh-notebook/
 **仍需人工确认**（只能在真实会话里看）
 
 - [x] 模型收到提醒后确实去维护经验本：本轮收到提醒后写了 2 条通用本、2 条项目本，投影 `updated` 后复测 `unchanged`
-- [ ] 加载器确实读到 `agent.md` / `project_agent.md`：开一个新会话，问"你的经验本里有什么"
+- [ ] 加载器确实读到 `dsh-notebook.md` / `dsh-notebook-project.md`：开一个新会话，问"你的经验本里有什么"
 - [ ] 停用后模型的上下文里确实看不到这两份本子
 - [ ] 界面在桌面端浏览器里打开、编辑、保存的完整手测
 
@@ -284,7 +284,30 @@ dsh-notebook/
 | 路由端口假设错 | 端口一律问 `webServer.getOrigin()`，`config.port` 已删 |
 | 误删用户文件 | 只在文件含本插件哨兵时才删除；否则只摘区块 |
 
-## 下一步
+## D19 卸载要收干净：投影随插件一起走
+
+**决定**：`ctx.effect` 的清理函数里不仅 dispose 路由，还要把每个记录过项目的投影摘掉；挂载时按记录重建。
+
+**为什么必须做**：投影是插件的产物，不是用户的内容。插件卸载后它还留在项目根，下一个读文件的人（包括未来的模型会话）会以为有个已安装的东西在维护它——而它已经几个月没更新了。这种"看起来还活着"的残留比干脆没有更有害。
+
+**关键实现**：
+- `runtime config` 里存 `enabledProjects: string[]`（`$DSH_HOME/notebook/config.json`）。开启时加、关闭时删；pre-step 发现项目开着也补记一次，用来兜住早于这个机制就开启的项目。
+- 清理用 `clearProjections(projectRoot)`：对当前两个名字和两个历史名字逐个 `syncProjection(path, null)`。
+- 挂载时 `apply()` 遍历 `enabledProjects` + `defaultProject` 各同步一次——所以"卸载→重装"的净效果是投影内容一模一样，因为真身一直在 JSON 里。
+
+**代价**：宿主正常退出也会跑清理，投影在 dsh 没运行时不存在。这是可接受的：模型只在 dsh 运行中读这些文件，重启即重建。
+
+## D20 项目本不按项目名命名
+
+**用户提议**：通用本叫 `dsh-notebook.md`，每个项目的叫 `<项目名>-agent.md`。
+
+**前半采纳，后半否掉**，因为加载器做不到：`dsh-agent-instructions` 的 `allExistingInstructionFiles()` 是 `for (const candidate of instructionFileCandidates) { const path = join(dir, candidate)` —— 精确文件名匹配，没有 glob、没有模板替换、没有目录扫描。候选表是全局静态数组，表达不了"每个项目一个名字"。真按项目名生成，加载器一个都认不到，等于两份本子都白写。
+
+**折中**：通用本 `dsh-notebook.md`（可进候选，且带上插件前缀不再和别人的 `agent.md` 撞车）；项目本 `dsh-notebook-project.md`（同样是插件专属固定名，项目名写在文件首行与 `notebook.json` 的 `project` 字段里）。两个名字都是插件私有的，谁的文件一目了然。
+
+**迁移**：`syncProject` 开头 `stripLegacy()`，把旧名文件里的受管区块摘掉——只摘区块，因为 `agent.md` 这种通用名里可能有别人写的字；整个文件只有本插件区块时才删文件。`LEGACY_MD` 常量留着，将来还能靠它清理更老的落点。
+
+## 风险
 
 1. 在 dsh 内重启实测，跑完"未验证"清单
 2. 若加载器不认新候选名 → 改用受管区块写进 `AGENTS.md`（保留 D3/D4，只是换落点）

@@ -79,7 +79,7 @@ Test-Path "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\dsh-notebook\lib\
 插件的挂载声明在它自己的 `cordis.patch.yml` 里，进入 `bundles` 后 dsh 会把它作为一层配置自动叠上去。这一步是**反直觉的**，我最初也以为要手动合并——不用。
 
 它会做两件事：
-- 给 `agent-instructions` 补 `instructionFileCandidates`，让 `agent.md` / `project_agent.md` 被当成指令文件加载
+- 给 `agent-instructions` 补 `instructionFileCandidates`，让 `dsh-notebook.md` / `dsh-notebook-project.md` 被当成指令文件加载
 - `insert` 本插件，带 `projectsRoot` 与 `port`
 
 ⚠️ **一处副作用**：它会**整体替换** `instructionFileCandidates` 数组。如果你的配置里已经自定义过这个值，会被覆盖。安装前确认一下：
@@ -127,7 +127,7 @@ http://127.0.0.1:<端口>/dsh-notebook/
 页面上填项目路径 `<你的项目绝对路径>` → 载入 → 点开开关。然后：
 
 ```powershell
-Get-ChildItem ".\agent.md",".\project_agent.md"          # 两个文件应出现
+Get-ChildItem ".\dsh-notebook.md",".\dsh-notebook-project.md"          # 两个文件应出现
 Get-Content ".\.dsh-notebook\state.json"                 # enabled 应为 true
 ```
 
@@ -168,7 +168,7 @@ Copy-Item "$p\cordis.patch.yml.bak-notebook" "$p\cordis.patch.yml" -Force
 [System.IO.Directory]::Delete("$p\node_modules\dsh-notebook", $false)
 ```
 
-再重启 dsh。项目目录里的 `agent.md` / `project_agent.md` 可以留着（它们只是普通 markdown），也可以删掉。
+再重启 dsh。项目目录里的 `dsh-notebook.md` / `dsh-notebook-project.md` 可以留着（它们只是普通 markdown），也可以删掉。
 
 ---
 
@@ -176,4 +176,4 @@ Copy-Item "$p\cordis.patch.yml.bak-notebook" "$p\cordis.patch.yml" -Force
 
 装好后建议第一件事是给已有项目起名字。界面左侧选项目 → 右侧填"项目名称" → 保存。
 
-名字由模型按项目内容自取，会写进 `project_agent.md` 首行。目的是：十几年后你回来，或者换个新会话，一眼知道这份本子属于哪个项目、在干什么。
+名字由模型按项目内容自取，会写进 `dsh-notebook-project.md` 首行。目的是：十几年后你回来，或者换个新会话，一眼知道这份本子属于哪个项目、在干什么。

@@ -15,6 +15,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import plugin from "../lib/index.js";
+import {
+  BEGIN,
+  END,
+  projectMd,
+  syncProject,
+  universalMd,
+  writeEnabled,
+  writeProject,
+} from "../lib/notebook.js";
 
 let failed = 0;
 function assert(cond, label, detail) {
@@ -149,8 +158,8 @@ try {
     body: JSON.stringify({ project, enabled: true }),
   })).json();
   assert(on.ok && on.enabled === true, "开关打开");
-  assert(existsSync(join(project, "agent.md")) && existsSync(join(project, "project_agent.md")), "两份投影已生成");
-  const uni = await readFile(join(project, "agent.md"), "utf8");
+  assert(existsSync(universalMd(project)) && existsSync(projectMd(project)), "两份投影已生成");
+  const uni = await readFile(universalMd(project), "utf8");
   assert(uni.includes("dsh-notebook:begin"), "投影带受管区块");
 
   console.log("保存与频率");
@@ -165,7 +174,7 @@ try {
     }),
   })).json();
   assert(save.ok, "保存成功", JSON.stringify(save));
-  const prjMd = await readFile(join(project, "project_agent.md"), "utf8");
+  const prjMd = await readFile(projectMd(project), "utf8");
   assert(prjMd.includes("本地测试项目"), "项目名写进投影");
   assert(prjMd.includes("## 项目结构"), "结构区块已渲染");
 
@@ -287,7 +296,7 @@ try {
     headers: { "content-type": "application/json", "x-dsh-notebook": "1" },
     body: JSON.stringify({ project, enabled: false }),
   });
-  assert(!existsSync(join(project, "project_agent.md")), "关闭后投影被清除");
+  assert(!existsSync(projectMd(project)), "关闭后投影被清除");
   assert(existsSync(join(project, ".dsh-notebook", "notebook.json")), "真身保留，重开可恢复");
 
   // A second instance with no default project: this is the first run of someone
@@ -382,6 +391,122 @@ console.log("重装后不重复提醒");
   } finally {
     await rm(home3, { recursive: true, force: true });
     await rm(root3, { recursive: true, force: true });
+  }
+}
+
+console.log("卸载清理");
+{
+  // Unloading the bundle must not leave blocks behind in project roots: they
+  // would outlive the plugin and keep looking maintained.
+  const home4 = await mkdtemp(join(tmpdir(), "nb-unload-home-"));
+  const root4 = await mkdtemp(join(tmpdir(), "nb-unload-root-"));
+  const project4 = join(root4, "proj-unload");
+  await mkdir(project4, { recursive: true });
+  let server4 = null;
+  try {
+    const inst = fakeContext();
+    plugin.apply(inst.ctx, {
+      dshHome: home4,
+      projectsRoot: root4,
+      defaultProject: "",
+      syncOnStart: false,
+    });
+    server4 = createServer((req, res) => dispatch(inst.routes, req, res));
+    await new Promise((done) => server4.listen(0, "127.0.0.1", done));
+    const origin4 = `http://127.0.0.1:${server4.address().port}`;
+
+    const on4 = await fetch(origin4 + "/dsh-notebook/api/toggle", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dsh-notebook": "1" },
+      body: JSON.stringify({ project: project4, enabled: true }),
+    });
+    assert(on4.status === 200, "开启写入投影", on4.status);
+    assert(existsSync(universalMd(project4)) && existsSync(projectMd(project4)), "卸载前两份投影在");
+
+    inst.disposers[0]();
+    // The disposer is synchronous; its cleanup runs on the microtask queue.
+    for (let i = 0; i < 80 && existsSync(projectMd(project4)); i += 1) {
+      await new Promise((done) => setTimeout(done, 25));
+    }
+    assert(!existsSync(universalMd(project4)), "卸载后通用投影被摘掉");
+    assert(!existsSync(projectMd(project4)), "卸载后项目投影被摘掉");
+    assert(
+      existsSync(join(project4, ".dsh-notebook", "state.json")),
+      "卸载不删 .dsh-notebook 里的真身",
+    );
+
+    const remount = fakeContext();
+    plugin.apply(remount.ctx, {
+      dshHome: home4,
+      projectsRoot: root4,
+      defaultProject: "",
+      syncOnStart: true,
+    });
+    for (let i = 0; i < 80 && !existsSync(projectMd(project4)); i += 1) {
+      await new Promise((done) => setTimeout(done, 25));
+    }
+    assert(
+      existsSync(universalMd(project4)) && existsSync(projectMd(project4)),
+      "重新加载后按 notebook 重建投影",
+    );
+    for (const dispose of remount.disposers) {
+      try {
+        dispose();
+      } catch {
+        /* already released */
+      }
+    }
+  } finally {
+    if (server4) await new Promise((done) => server4.close(done));
+    await rm(home4, { recursive: true, force: true });
+    await rm(root4, { recursive: true, force: true });
+  }
+}
+
+console.log("旧文件名迁移");
+{
+  // Versions before 0.6 wrote agent.md / project_agent.md. Those blocks have to
+  // be taken out — but only the block, since the file may carry someone else's text.
+  const home5 = await mkdtemp(join(tmpdir(), "nb-mig-home-"));
+  const root5 = await mkdtemp(join(tmpdir(), "nb-mig-root-"));
+  const project5 = join(root5, "proj-migrate");
+  await mkdir(project5, { recursive: true });
+  try {
+    await writeFile(
+      join(project5, "agent.md"),
+      `# 别人手写的开头\n\n${BEGIN}\n旧版投影内容\n${END}\n\n后面还有别人的字\n`,
+      "utf8",
+    );
+    await writeFile(join(project5, "project_agent.md"), `${BEGIN}\n只有旧投影\n${END}\n`, "utf8");
+    await writeProject(project5, { project: "迁移项目", entries: [] });
+    await writeEnabled(project5, true);
+
+    const migrated = await syncProject(project5, home5);
+    assert(
+      migrated.project === "created" || migrated.project === "updated",
+      "新投影已写",
+      JSON.stringify(migrated),
+    );
+
+    const oldUniversal = await readFile(join(project5, "agent.md"), "utf8");
+    assert(!oldUniversal.includes(BEGIN), "旧通用本区块被摘掉");
+    assert(
+      oldUniversal.includes("别人手写的开头") && oldUniversal.includes("后面还有别人的字"),
+      "别人写的内容保留",
+    );
+    assert(!existsSync(join(project5, "project_agent.md")), "旧项目本只含投影，整份删除");
+    assert(existsSync(universalMd(project5)), "新通用投影 dsh-notebook.md 已生成");
+    assert(existsSync(projectMd(project5)), "新项目投影 dsh-notebook-project.md 已生成");
+
+    const replayed = await syncProject(project5, home5);
+    assert(
+      replayed.universal === "unchanged" && replayed.project === "unchanged",
+      "迁移后幂等",
+      JSON.stringify(replayed),
+    );
+  } finally {
+    await rm(home5, { recursive: true, force: true });
+    await rm(root5, { recursive: true, force: true });
   }
 }
 

@@ -78,7 +78,7 @@ lib/  ui/  docs/{PLAN,INSTALL,RELEASE}.md  cordis.patch.yml  README.md  LICENSE
 | `test/` | 开发用，且需要 node 的测试环境；不占体积 |
 | `scripts/seed.mjs` | 作者本地播种脚本，路径写死 |
 | `.dsh-notebook/` | 作者自己的状态，含绝对路径 |
-| `agent.md` / `project_agent.md` | 作者项目的投影；若进包，会给用户塞一份无关的经验本 |
+| `dsh-notebook.md` / `dsh-notebook-project.md` | 作者项目的投影；若进包，会给用户塞一份无关的经验本 |
 
 `prepack` 挂了 `check` + `test`，`npm publish` 前会自动跑；挂了就别想发出去。
 
@@ -121,7 +121,7 @@ npm publish --access public
 **② npm 包**
 
 ```jsonc
-"dependencies": { "dsh-notebook": "^0.5.5" },
+"dependencies": { "dsh-notebook": "^0.6.0" },
 "dsh": { "profile": { "bundles": [ /* …, */ "dsh-notebook" ] } }
 ```
 
@@ -129,15 +129,17 @@ npm publish --access public
 
 ```jsonc
 "dsh-notebook": "https://github.com/<you>/dsh-notebook/releases/latest/download/dsh-notebook.tgz"
-"dsh-notebook": "github:<you>/dsh-notebook#v0.5.5"
+"dsh-notebook": "github:<you>/dsh-notebook#v0.6.0"
 ```
 
 三种都要做同一件事：**加入 `bundles`**。只装依赖不入 bundles，等于装了个不加载的包。
 
 ---
 
-## 六、别人装之前要知道的三件事
+## 六、别人装之前要知道的事
 
-1. **`instructionFileCandidates` 会被整体替换**。装之前若自己改过，需在用户层 patch 里写全。
-2. **会在项目根生成两个 md**。`agent.md` 与 `project_agent.md`，只在该项目"开启"后出现，关闭即清除。
-3. **默认 `projectsRoot` 是空**，即用 dsh 的启动目录。别人的目录结构不同，得在 `config` 里给一个项目根，否则界面的项目下拉是空的（仍可手填路径）。
+1. **`instructionFileCandidates` 会被整体替换**。装之前若自己改过，需在用户层 patch 里写全。加进去的是 `dsh-notebook.md` 与 `dsh-notebook-project.md` 两个固定名——加载器只做精确文件名匹配，做不出"每个项目一个名字"。
+2. **会在项目根生成两个 md**。`dsh-notebook.md` 与 `dsh-notebook-project.md`，只在该项目"开启"后出现，关闭即清除。
+3. **`projectsRoot` 默认为空**，此时界面的项目下拉也是空的，需要自己填一个项目根（回车即存进 `$DSH_HOME/notebook/config.json`）。插件不会拿 dsh 的启动目录凑数——那个目录是 profile 本身，列出来全是 `node_modules` 之类。
+4. **卸载会摘掉投影**：`remove_bundle` 或停用后，项目根那两个 md 里的受管区块会被移除，`.dsh-notebook/` 里的真身保留；重装或重新启用时按真身重建。
+5. **旧版本留下的 `agent.md` / `project_agent.md` 会被自动清掉区块**。0.5.x 及更早用那两个通用名，升级后 `syncProject` 会先把旧区块摘掉再写新文件。整个文件只有本插件区块时直接删除，混着别人的字就只摘区块。

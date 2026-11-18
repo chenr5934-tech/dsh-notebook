@@ -5,15 +5,18 @@
 
 # 让指令加载器认得本插件的两个投影文件。
 # 默认候选只有 AGENTS.md / CLAUDE.md，不补这两项投影不会被模型读到。
-# 注意：这里是整体替换——若用户层 patch 也写了 instructionFileCandidates，
+# 名字带插件前缀，是因为 agent.md 这种通用名会和别的工具撞车。
+# 注意：加载器只做精确文件名匹配（join(dir, candidate)，无 glob、无模板），
+# 所以这里不能写成「每个项目各自的名字」，只能是固定两项。
+# 另外这里是整体替换——若用户层 patch 也写了 instructionFileCandidates，
 # 以用户层为准，那两项就得由用户自己补进数组里。
 - id: agent-instructions
   config:
     instructionFileCandidates:
       - AGENTS.md
       - CLAUDE.md
-      - agent.md
-      - project_agent.md
+      - dsh-notebook.md
+      - dsh-notebook-project.md
     localInstructionFileCandidates:
       - AGENTS.local.md
       - CLAUDE.local.md
@@ -27,5 +30,6 @@
         projectsRoot: ""
         # 没有会话上下文时（启动同步、命令行不带参数）默认操作哪个项目。留空则不预设。
         defaultProject: ""
-        # 启动时对 defaultProject 做一次投影同步。没有 defaultProject 时无操作。
+        # 启动时对记录过的项目（runtime config 的 enabledProjects）与 defaultProject
+        # 各做一次投影同步。插件卸载时会把投影摘掉，靠这里重建。
         syncOnStart: true

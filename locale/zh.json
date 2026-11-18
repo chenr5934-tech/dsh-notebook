@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "备忘录",
-    "description": "给模型用的经验本：开工前读、收工前写。为每个项目维护一份「通用经验本」和一份「项目经验本」，渲染成 agent.md 与 project_agent.md 两个受管区块，由 dsh 的指令加载器自动读进上下文；每 N 轮由插件在会话里投递一次维护提醒。用法：点侧栏「备忘录」；第一次打开时右下角浮出一张不挡操作的「三分钟上手」卡片，勾「以后不再提醒」后不再弹出，页脚「使用说明」可随时叫回。先在右上角「项目根」填放项目的目录（例如 D:\\dsh工作区\\PROJECTS-项目），回车即存到 $DSH_HOME/notebook/config.json，它只用来列候选；再从下拉选项目或直接填绝对路径；然后打开左上角开关，插件才会写出两份投影。每张卡写一条经验，「确立」带全文进注入面、「候选」只留标题、「退役」只进索引；界面上还可增删条目、调频率、看归属本项目的会话记录、生成自审查提纲。命令行 /notebook 支持 status、on、off、every N、review、sync。数据只写在本地：$DSH_HOME/notebook/universal.json 与 项目/.dsh-notebook/notebook.json，投影写进项目根目录的两个 md 文件；不上传、不联网。关掉开关后两份投影的受管区块会被移除，真身 JSON 保留，重开即恢复。会向会话注入一条 user 角色的提醒消息（source.plugin=dsh-notebook），除此之外不改模型上下文。"
+    "description": "给模型用的经验本：开工前读、收工前写。为每个项目维护一份「通用经验本」和一份「项目经验本」，渲染成 dsh-notebook.md 与 dsh-notebook-project.md 两个受管区块，由 dsh 的指令加载器自动读进上下文；每 N 轮由插件在会话里投递一次维护提醒。用法：点侧栏「备忘录」；第一次打开时右下角浮出一张不挡操作的「三分钟上手」卡片，勾「以后不再提醒」后不再弹出，页脚「使用说明」可随时叫回。先在右上角「项目根」填放项目的目录（例如 D:\\dsh工作区\\PROJECTS-项目），回车即存到 $DSH_HOME/notebook/config.json，它只用来列候选；再从下拉选项目或直接填绝对路径；然后打开左上角开关，插件才会写出两份投影。每张卡写一条经验，「确立」带全文进注入面、「候选」只留标题、「退役」只进索引；界面上还可增删条目、调频率、看归属本项目的会话记录、生成自审查提纲。命令行 /notebook 支持 status、on、off、every N、review、sync。数据只写在本地：$DSH_HOME/notebook/universal.json 与 项目/.dsh-notebook/notebook.json，投影写进项目根目录的两个 md 文件；不上传、不联网。关掉开关后两份投影的受管区块会被移除，真身 JSON 保留，重开即恢复；插件被卸载时也会摘掉这两块，重新加载后按 notebook 自动重建。会向会话注入一条 user 角色的提醒消息（source.plugin=dsh-notebook），除此之外不改模型上下文。"
   }
 }

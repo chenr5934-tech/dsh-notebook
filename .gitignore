@@ -1,5 +1,8 @@
 # Runtime data this plugin writes — belongs to whoever runs it, not to the repo.
 .dsh-notebook/
+dsh-notebook.md
+dsh-notebook-project.md
+# Names used before 0.6.0, kept so an old checkout stays clean.
 agent.md
 project_agent.md
 *.bak

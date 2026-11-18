@@ -31,6 +31,19 @@ const patch = await readFile(join(root, "cordis.patch.yml"), "utf8");
 assert(patch.includes("dsh-notebook"), "patch 里有插件 insert 声明");
 assert(patch.includes("instructionFileCandidates"), "patch 里补了指令候选");
 
+// The loader matches candidate names exactly (join(dir, candidate), no glob and no
+// per-project templating), so the two projections only reach the model when their
+// literal file names sit in this list. A rename that forgets the patch silently
+// takes both notebooks out of context, which is exactly the failure this guards.
+const { PROJECT_MD, UNIVERSAL_MD } = await import("../lib/notebook.js");
+for (const name of [UNIVERSAL_MD, PROJECT_MD]) {
+  assert(patch.includes(`      - ${name}`), `patch 候选含 ${name}`);
+}
+assert(UNIVERSAL_MD === "dsh-notebook.md", "通用投影叫 dsh-notebook.md", UNIVERSAL_MD);
+assert(PROJECT_MD === "dsh-notebook-project.md", "项目投影叫 dsh-notebook-project.md", PROJECT_MD);
+assert(!/^\s+- agent\.md$/m.test(patch), "patch 不再用通用名 agent.md 当候选");
+assert(!/^\s+- project_agent\.md$/m.test(patch), "patch 不再用通用名 project_agent.md 当候选");
+
 console.log("exports");
 assert(pkg.exports?.["."] === "./lib/index.js", "主入口导出");
 assert(pkg.exports?.["./cordis.patch.yml"], "导出 patch");
@@ -67,7 +80,7 @@ for (const lang of ["en", "zh"]) {
   }
   // The plugin page is where the manual lives: the detail document is one image,
   // so usage has to be spelled out in the description itself.
-  for (const word of ["notebook", "agent.md"]) {
+  for (const word of ["notebook", "dsh-notebook.md"]) {
     assert(String(description).toLowerCase().includes(word), `${lang} description 提到 ${word}`);
   }
   assert(/项目根|项目根|Set 项目根|project root|Set /.test(String(description)), `${lang} description 写了从哪一步开始`);
