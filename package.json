@@ -1,6 +1,6 @@
 {
   "name": "dsh-notebook",
-  "version": "0.6.1",
+  "version": "0.6.4",
   "description": "Per-project experience notebook for the agent: read before work, write after. Visual manager for a universal and a project notebook, with a cadence reminder.",
   "type": "module",
   "main": "lib/index.js",

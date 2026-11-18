@@ -266,6 +266,9 @@ function renderAll() { renderUniversal(); renderProject(); renderSessions(); }
 
 async function load(autoPick = true) {
   setStatus("载入中…");
+  // Restoring the draft must not depend on the fetch succeeding: a backend
+  // that is briefly unreachable should not cost the user their unsaved edits.
+  let restorable = false;
   try {
     const q = "?project=" + encodeURIComponent(S.project);
     const body = await api("/dsh-notebook/api/state" + q);
@@ -315,25 +318,89 @@ async function load(autoPick = true) {
     S.sessions = ses.sessions || [];
     renderSessions();
     setStatus(`已载入：通用 ${S.universal.length} 条 / 项目 ${S.projectNb.length} 条 / 会话 ${S.sessions.length} 个`, "ok");
+    // Dropped entries are not an error the page can recover from silently: the
+    // file is there, its shape is wrong, and the user is the only one who can
+    // decide whether to fix or forget it.
+    const dropped = [body.universal?.droppedEntries, body.projectNotebook?.droppedEntries]
+      .filter((n) => typeof n === "number" && n !== 0);
+    if (dropped.length) {
+      const broken = dropped.includes(-1);
+      setStatus(
+        broken
+          ? `有条目的 entries 不是数组，已按空本载入 —— 检查 ${S.paths.project || ".dsh-notebook/notebook.json"}`
+          : `跳过了 ${dropped.reduce((a, b) => a + Math.abs(b), 0)} 条无法识别的记录（不是对象），其余已正常载入`,
+        "bad",
+      );
+    }
+    // The drop warning outranks the draft notice: it reports damaged data.
+    restorable = !dropped.length;
   } catch (err) {
     setStatus(String(err?.message || err), "bad");
+    restorable = true;
   }
+  if (restorable) restoreDraft();
+}
+
+// The panel is an iframe, so switching the sidebar away destroys this document
+// entirely — sessionStorage would go with it. localStorage survives that, and a
+// successful save or the TTL clears it, so a stale draft cannot linger forever.
+const DRAFT_KEY = "dsh-notebook:draft";
+const DRAFT_TTL_MS = 30 * 60 * 1000;
+
+function saveDraft() {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      project: S.project,
+      projectName: S.projectName,
+      universal: S.universal,
+      projectNb: S.projectNb,
+      at: Date.now(),
+    }));
+  } catch { /* storage full or disabled — nothing to do */ }
+}
+
+function dropDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+}
+
+function restoreDraft() {
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch { draft = null; }
+  if (!draft || typeof draft !== "object") return false;
+  if (!(Date.now() - Number(draft.at || 0) < DRAFT_TTL_MS)) { dropDraft(); return false; }
+  // Only for the project it was written in — a draft must never leak into
+  // another project's notebook.
+  if ((draft.project || "") !== (S.project || "")) return false;
+  if (Array.isArray(draft.universal)) S.universal = draft.universal;
+  if (Array.isArray(draft.projectNb)) S.projectNb = draft.projectNb;
+  if (typeof draft.projectName === "string" && draft.projectName) S.projectName = draft.projectName;
+  renderAll();
+  setStatus("恢复了上次没保存的编辑 —— 记得点「保存并同步」", "bad");
+  return true;
 }
 
 async function save() {
   setStatus("保存中…");
   try {
-    for (const scope of ["universal", "project"]) {
+    // The universal notebook is cross-project: it saves and syncs on its own, so
+    // it stays editable before a project has been picked.
+    await api("/dsh-notebook/api/save", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "universal", entries: S.universal }),
+    });
+    if (S.project) {
       await api("/dsh-notebook/api/save", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          project: S.project, scope, name: S.projectName,
-          entries: scope === "universal" ? S.universal : S.projectNb,
+          project: S.project, scope: "project", name: S.projectName, entries: S.projectNb,
         }),
       });
     }
+    // Clear before reloading: load() restores a draft, and the draft is the
+    // state we just saved.
+    dropDraft();
     await load();
-    setStatus("已保存并同步", "ok");
+    setStatus(S.project ? "已保存并同步" : "通用本已保存（选个项目还能存项目本）", "ok");
   } catch (err) { setStatus(String(err.message || err), "bad"); }
 }
 
@@ -360,7 +427,8 @@ async function showSession(id) {
   const s = body.session;
   S.sheetText = s.messages.map((m) => `[${m.role === "user" ? "用户" : "助手"}] ${m.text}`).join("\n\n");
   $("sheetTitle").textContent = s.title || "会话";
-  $("sheetBody").innerHTML = s.messages.map((m) => `<div class="msg ${m.role === "user" ? "user" : ""}"><div class="who">${m.role === "user" ? "用户" : "助手"} · ${fmt(m.time)}</div>${esc(m.text)}</div>`).join("") || '<div class="empty">没有可显示的消息</div>';
+  const note = s.truncated ? `<div class="empty" style="padding:8px 0">只显示最近 ${s.messages.length} 条（共 ${s.messageTotal} 条）</div>` : "";
+  $("sheetBody").innerHTML = note + (s.messages.map((m) => `<div class="msg ${m.role === "user" ? "user" : ""}"><div class="who">${m.role === "user" ? "用户" : "助手"} · ${fmt(m.time)}</div>${esc(m.text)}</div>`).join("") || '<div class="empty">没有可显示的消息</div>');
   $("drawer").classList.add("on");
 }
 
@@ -370,13 +438,14 @@ async function review() {
 }
 
 document.addEventListener("input", (ev) => {
-  if (ev.target.id === "projectName") { S.projectName = ev.target.value; return; }
+  if (ev.target.id === "projectName") { S.projectName = ev.target.value; saveDraft(); return; }
   const card = ev.target.closest(".card");
   if (!card) return;
   const f = ev.target.dataset.f;
   if (!f) return;
   const list = card.dataset.scope === "universal" ? S.universal : S.projectNb;
   list[Number(card.dataset.i)][f] = ev.target.value;
+  saveDraft();
 });
 
 document.addEventListener("change", (ev) => {
@@ -392,6 +461,7 @@ document.addEventListener("change", (ev) => {
   if (card && ev.target.dataset.f) {
     const list = card.dataset.scope === "universal" ? S.universal : S.projectNb;
     list[Number(card.dataset.i)][ev.target.dataset.f] = ev.target.value;
+    saveDraft();
   }
 });
 
@@ -401,13 +471,14 @@ document.addEventListener("click", (ev) => {
     const list = card.dataset.scope === "universal" ? S.universal : S.projectNb;
     list.splice(Number(card.dataset.i), 1);
     if (card.dataset.scope === "universal") renderUniversal(); else renderProject();
+    saveDraft();
     return;
   }
   const add = ev.target.dataset.add;
   // A positional id collides after any deletion ("P3" twice) and a missing one
   // makes every save look like a fresh edit; both corrupt the timestamps.
-  if (add === "universal") { S.universal.push({ id: newId("P"), title: "", status: "candidate" }); renderUniversal(); }
-  else if (add === "project") { S.projectNb.push({ id: newId("E"), area: "layout", title: "", text: "" }); renderProject(); }
+  if (add === "universal") { S.universal.push({ id: newId("P"), title: "", status: "candidate" }); renderUniversal(); saveDraft(); }
+  else if (add === "project") { S.projectNb.push({ id: newId("E"), area: "layout", title: "", text: "" }); renderProject(); saveDraft(); }
   const sess = ev.target.closest(".sess");
   if (sess) showSession(sess.dataset.id);
 });

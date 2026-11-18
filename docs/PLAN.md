@@ -316,7 +316,49 @@ dsh-notebook/
 
 **④ 会话列表没有缓存。** 每次打开页面、每次切项目都全扫一遍目录（本机 103 个会话 1.4 秒）。修法：按 `(home, project, since, full)` 缓存 3 秒，缓存的是 Promise 所以并发只算一次。3 秒足够短，点「重新载入」就能看到新会话。
 
-顺带补了 GitHub Actions（`node 22 / 24` 双矩阵跑 `check` + `test`），因为之前没有任何东西保证提交是可运行的。
+顺带补了 GitHub Actions（`node 22 / 24` 双矩阵跑 `check` + `test`），因为之前没有任何保证提交是可运行的。
+
+## D22 第二轮审计：投毒输入与 markdown 注入
+
+用户问"还有缺陷？再查"，于是不再读代码找可疑点，改为**构造坏输入打进去**。真身文件就是项目根下的一份普通 JSON，谁都能改；渲染结果又是要进模型上下文的 markdown。两个方向各炸出一批问题。
+
+**入站数据不校验（最严重）。** `entries` 是对象而不是数组时，`backfillDays` 里的 `entries.some` 直接抛 `TypeError`，整个 `readProject` 崩掉、接口 500、那个项目从此打不开。更糟的是元素级：`entries: [null, "字符串", {...}]` 会让字符串被 `{...entry}` 展开成 `{"0":"字","1":"符","2":"串"}`，下次保存就把这堆垃圾写回真身。修法：所有读取都过 `normalizeNotebook()`——非数组当空数组、非对象元素丢弃并计数，`/api/state` 带回 `droppedEntries`（`-1` 表示字段存在但不是数组），界面据此提示"跳过了 N 条无识别记录"而不是装作没事。
+
+**markdown 注入。** 渲染只防了哨兵，没防 markdown 自己的语法：标题含 `|` 会把索引表切错列；含换行会把一条经验拆成两行；含 `**` 会提前闭合加粗；项目名含换行能凭空造出 `# 假标题`；5 万字符的标题会把投影撑到 5 万字节。修法：`cell()` 转义竖线、`bold()` 转义星号、`oneLine()` 压平换行、`clip()` 按字段设上限（标题 200、正文 4000、五段字段各 1000），超出就截断并注明。
+
+**分区名认不出就静默消失。** 渲染只遍历五个已知 `area`，写错一个字母（`Risk`、`" risk"`、`不存在的区`）那一条就不出现在投影里，不报错、不提示。修法：`areaOf()` 做 trim + 小写归一，认不出的落到"本地约定"并在标题后标 `（原分区：xxx）`——宁可位置不理想，也不能吞掉内容。
+
+**区块标记不成对。** 用户删掉 `BEGIN` 那行、或在文档里引用标记时多粘一个，`applyBlock` 会从第一个 BEGIN 切到第一个 END 横跨无关内容，或追加出第二个闭合标记。修法：`healBlock()` 先清孤立标记（引用性质的多余标记是垃圾），`applyBlock` 再清掉重复粘贴的第二段区块，且只在第一对之间写入。
+
+**`project` 指向不存在的路径也放行。** `needsProject` 只挡了 `$DSH_HOME` 与空值，于是把路径打错一个字，插件就 `mkdir -p` 一路建出目录树；指向文件则是 `ENOTDIR`。修法：必须是**已存在的目录**，否则 400 并说明。
+
+**空 `project` 列出全机会话。** `listSessions` 用"路径包含 needle"判断归属，needle 是空串时恒真。接口层有 `needsProject` 挡着，但库层不该靠调用方守。修法：空 project 直接返回空数组。
+
+测试从 230 涨到 251，新增的 21 条全部是"坏输入打进去看它怎么倒"这一类。
+
+## D23 第三轮审计：命令根本没注册上
+
+用户再问"再查，大 bug 严查"。这次放下数据层，专挑**"用户点了会失败、但没有报错"**的路径。第一个就撞上最要命的那个。
+
+**`ctx.get("commands")` 采样时机错了。** `installCommand` 在 `apply()` 里同步跑一次 `ctx.get("commands")`，拿不到就 `return () => {}` 安静退出——而插件被挂载时并不保证每个它没声明依赖的服务都已经在。于是 `/notebook` 可能从来没注册上，用户敲了没反应，也没有任何地方说明原因。对照两个真实插件：`dsh-pet` 用 `ctx.effect(() => ctx.commands.register(...))`，`dsh-miga-pua` 直接 `export const inject = ['commands', ...]`——都靠容器等待，没有一个是采样一次的。修法：`ctx.inject(["commands"], (host) => registerCommand(host.commands, ...))`。
+
+**命令的 disposer 被丢掉。** `installCommand` 是有返回值的，但 `apply()` 没接——没接就没有 effect 管它，卸载插件后命令还在，点下去调用的是已经消失的模块。修法：在 `inject` 回调里把它挂到 `ctx.effect` 上。
+
+**`writeRuntime` 非原子。** 上一轮给 `writeJson` 加了 temp+rename，但这套只覆盖两份经验本；`$DSH_HOME/notebook/config.json` 还走裸 `writeFileSync`，而它装着 **`enabledProjects`（卸载清理的唯一依据）** 和 `remindedTurns`（跨重装的提醒游标）。半截写 → 解析失败 → 静默返回 `{}` → 卸载时不清投影、重装后立刻重复提醒，两个都是"看起来正常、其实坏了"。修法：`notebook.js` 导出同步版 `writeJsonSync()`（同样的 temp+rename），`writeRuntime` 改用它。
+
+**`rememberProject` 每步都写盘。** `agent/pre-step` 是**每个 step** 触发，不是每个 turn；旧实现无条件 `writeRuntime`，于是每步一次同步读 + 一次同步写，把 config.json 的 mtime 刷成心跳。修法：集合没变就直接返回。
+
+**通用本离不开项目。** `/api/save` 一律先 `needsProject`·`scope: "universal"` 也被要求给项目——可通用本是跨项目的，第一次打开、还没选项目时想先写两条通用经验，只会拿到 400。而它的投影 `dsh-notebook.md` 在每个项目里都有一份，本该一次保存同步所有**已开启**的项目。修法：universal 分支不要求项目，改为遍历 `enabledProjects()` 逐个同步；界面也改成"通用本永远能存，项目本选了项目才存"。
+
+**会话详情没有上限。** `readSession` 把整份日志的所有消息原样回传，单个文件可以到 8.5 MB、6421 帧。点开一个长会话就是一次几兆的 JSON + 几千个 DOM 节点，面板直接卡死。修法：只带最近 80 条、每条正文超 2000 字截断并注明原长度，响应里给 `truncated` / `messageTotal`，界面显示"只显示最近 N 条（共 M 条）"。
+
+**空 `id` 返回任意会话。** `loadSession` 用 `path.includes(id)` 找，`id` 是空串时命中第一条。修法：接口层 `id` 为空直接 400。
+
+**删掉的项目会被重新创建。** `syncProject` 里 `syncProjection` 会 `mkdir(dirname(path), {recursive:true})`，而启动同步与卸载清理都会对 `enabledProjects` 里的历史路径调用它——项目文件夹已被用户删掉时，插件会**凭空建出空目录**，看起来像个项目。修法：`syncProject` 开头 `existsSync(projectRoot)` 不成立就直接返回 `{missing: true}`。
+
+**面板拿不到"当前会话"这件事没有再折腾。** 想让侧栏面板自动跟随当前会话的项目，但 client 侧 builtin 只有 `ctx` / `React` / `host` / `styles` / `console`，`React` 只暴露 `createElement/useState/useEffect`；`sessions` 服务虽然存在，但每个方法都要先有 `sessionId`，没有一个"当前是哪个会话"的入口。结论是维持"记住上次打开的项目"，界面顶部始终显示当前路径作为兜底。
+
+测试 251 → 249（合并了两条断言、新增 5 条：通用本无项目可存、通用本同步到已开启项目、空 id 400），全部通过。宿主内验证 `features: {web: true, command: true}`——这是第一次能**直接确认**命令真的注册上了。
 
 ## 风险
 

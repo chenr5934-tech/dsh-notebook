@@ -294,5 +294,83 @@ console.log("会话归属");
   await rm(sHome, { recursive: true, force: true });
 }
 
+// The truth files are plain JSON in the user's project root, so they can arrive
+// in any shape. Two failure modes used to be silent: a non-array `entries` took
+// the page down, and a string element was spread into {"0":"字",...} and written
+// back over the file. Both are pinned here.
+console.log("hostile input");
+{
+  const path = join(project, ".dsh-notebook", "notebook.json");
+  await mkdir(join(project, ".dsh-notebook"), { recursive: true });
+
+  await writeFile(path, JSON.stringify({ version: 1, project: "坏", entries: { a: 1 } }), "utf8");
+  const shaped = await readProject(project);
+  assert(shaped.entries.length === 0, "entries 不是数组时按空本读，不抛错");
+  assert(shaped.droppedEntries === -1, "entries 不是数组时报告 -1", shaped.droppedEntries);
+
+  await writeFile(path, JSON.stringify({ version: 1, project: "坏", entries: [null, "字符串", { title: "正常" }] }), "utf8");
+  const mixed = await readProject(project);
+  assert(mixed.entries.length === 1 && mixed.entries[0].title === "正常", "非对象元素被丢弃，只留合法条目", JSON.stringify(mixed.entries));
+  assert(mixed.droppedEntries === 2, "丢弃数被计数，不再静默", mixed.droppedEntries);
+  assert(!JSON.stringify(mixed.entries).includes('"0":"字"'), "字符串不会被展开成字符索引写回");
+}
+
+console.log("markdown escaping");
+{
+  const pipe = renderUniversal({ entries: [{ id: "P1", title: "表格里的 | 竖线", status: "candidate" }] });
+  const row = pipe.split("\n").find((line) => line.includes("竖线"));
+  assert(row === "| P1 | 表格里的 \\| 竖线 | 候选 |", "标题里的竖线在表格里被转义", row);
+
+  const star = renderProject({ project: "x", entries: [{ id: "c", area: "risk", title: "**注入**加粗", text: "t", status: "established" }] });
+  assert(star.includes("**\\*\\*注入\\*\\*加粗**"), "标题里的 ** 不会提前闭合加粗");
+
+  const folded = renderProject({ project: "x", entries: [{ id: "b", area: "risk", title: "第一行\n第二行", text: "t", status: "established" }] });
+  const item = folded.split("\n").find((line) => line.includes("第一行"));
+  assert(item.includes("第一行 第二行") && !folded.includes("第一行\n第二行"), "标题换行被压成空格，不把一条拆成两条", item);
+
+  const long = renderProject({ project: "x", entries: [{ id: "r", area: "risk", title: "标".repeat(5000), text: "t", status: "established" }] });
+  assert(long.length < 1200 && long.includes("已截断"), "超长标题被截断，投影不被撑爆", long.length);
+
+  const named = renderProject({ project: "审计\n# 假标题", entries: [] });
+  assert(named.split("\n")[0] === "# 项目经验本：审计 # 假标题", "项目名里的换行不会注入伪标题", named.split("\n")[0]);
+}
+
+console.log("unknown area");
+{
+  const out = renderProject({
+    project: "x",
+    entries: [
+      { id: "j1", area: "不存在的区", title: "错区", text: "x", status: "established" },
+      { id: "j2", area: "Risk", title: "大写区", text: "x", status: "established" },
+      { id: "j3", area: "", title: "空区", text: "x", status: "established" },
+    ],
+  });
+  assert(out.includes("错区") && out.includes("大写区") && out.includes("空区"), "分区名认不出的条目不再静默消失");
+  assert(out.includes("（原分区：不存在的区）"), "认不出的分区被标注出来");
+  assert(!out.includes("（原分区：Risk）"), "只差大小写的分区名直接归位，不当成异常");
+  assert(!out.includes("（原分区：空）"), "缺失分区是默认值，不加标注");
+}
+
+// A user who deletes the opener line, or pastes the markers twice while quoting
+// them, used to leave the file with two closers or a block appended mid-file.
+console.log("block self-healing");
+{
+  const target = join(project, "heal.md");
+  await writeFile(target, `${BEGIN}\n旧\n${END}\n`, "utf8");
+  await syncProjection(target, "第一版");
+  await writeFile(target, `手写开头\n${END}\n手写结尾\n`, "utf8");
+  await syncProjection(target, "第二版");
+  const healed = await readFile(target, "utf8");
+  assert(healed.split(BEGIN).length - 1 === 1 && healed.split(END).length - 1 === 1, "只剩 END 时被清理，不再出现两个闭合标记");
+  assert(healed.includes("手写开头") && healed.includes("手写结尾"), "清理孤立标记不伤用户自己的字");
+
+  await writeFile(target, `${BEGIN}\n旧一\n${END}\n中间\n${BEGIN}\n旧二\n${END}\n`, "utf8");
+  await syncProjection(target, "第三版");
+  const single = await readFile(target, "utf8");
+  assert(single.split(BEGIN).length - 1 === 1 && single.split(END).length - 1 === 1, "重复粘贴的第二个区块被清掉，只留一个");
+  assert(!single.includes("旧二"), "被清掉的区块内容不留在文件里");
+  await rm(target, { force: true });
+}
+
 console.log(failed ? `\n${failed} 项失败` : "\n全部通过");
 process.exit(failed ? 1 : 0);

@@ -51,9 +51,9 @@ function fakeContext() {
       }
     },
     inject(deps, callback) {
-      assert(Array.isArray(deps) && deps.includes("webServer"), "插件声明依赖 webServer");
-      callback({
-        webServer: {
+      const host = {};
+      if (deps.includes("webServer")) {
+        host.webServer = {
           getOrigin() {
             return "http://127.0.0.1:43120";
           },
@@ -64,8 +64,17 @@ function fakeContext() {
               if (at !== -1) routes.splice(at, 1);
             };
           },
-        },
-      });
+        };
+      }
+      if (deps.includes("commands")) {
+        host.commands = {
+          register(definition) {
+            commands.push(definition);
+            return () => {};
+          },
+        };
+      }
+      callback(host);
     },
     get(name) {
       if (name === "commands") {
@@ -128,7 +137,12 @@ try {
   assert(routes.length >= 1, "注册了路由", routes.length);
   assert(typeof handlers["agent/pre-step"] === "function", "订阅了 agent/pre-step");
   assert(commands.length === 1, "注册了一条命令", commands.length);
-  assert(disposers.length === 1 && typeof disposers[0] === "function", "注册了清理函数");
+  // One effect disposes the routes and the projections, one disposes the command.
+  assert(
+    disposers.length === 2 && disposers.every((entry) => typeof entry === "function"),
+    "注册了清理函数（路由 + 命令）",
+    disposers.length,
+  );
 
   server = createServer((req, res) => dispatch(routes, req, res));
   await new Promise((done) => server.listen(0, "127.0.0.1", done));
@@ -141,6 +155,17 @@ try {
   assert(html.includes("会话历史") && html.includes("通用经验本") && html.includes("项目经验本"), "页面含三块主体");
   assert(html.includes('id="tour"') && html.includes('id="tourNever"'), "页面带上手引导卡");
   assert(html.includes('id="help"'), "页脚有使用说明入口");
+  // Switching the sidebar away unmounts the panel and reloads the page, so
+  // unsaved edits survive only through the draft in localStorage (an iframe loses
+  // its own sessionStorage when the panel is unmounted).
+  assert(html.includes("dsh-notebook:draft") && html.includes("localStorage.setItem(DRAFT_KEY"), "页面会暂存未保存的编辑");
+  assert(html.includes("saveDraft()") && html.includes("restoreDraft()") && html.includes("dropDraft()"), "草稿的三个动作都在");
+  const boot = await (await fetch(base + "/dsh-notebook/api/state")).json();
+  assert(
+    boot.features?.web === true && boot.features?.command === true,
+    "state 报告两个服务都起来了",
+    JSON.stringify(boot.features),
+  );
   assert((await fetch(base + "/dsh-notebook")).status === 200, "无尾斜杠也可访问");
   assert((await fetch(base + "/dsh-notebook/nope")).status === 404, "未知子路径不落进页面");
 
@@ -177,6 +202,21 @@ try {
   const prjMd = await readFile(projectMd(project), "utf8");
   assert(prjMd.includes("本地测试项目"), "项目名写进投影");
   assert(prjMd.includes("## 项目结构"), "结构区块已渲染");
+
+  // The universal notebook is cross-project, so it must not need one to save.
+  const uniSave = await (await fetch(base + "/dsh-notebook/api/save", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-dsh-notebook": "1" },
+    body: JSON.stringify({ scope: "universal", entries: [{ title: "跨项目", text: "通用经验" }] }),
+  })).json();
+  assert(uniSave.ok && uniSave.scope === "universal", "通用本无项目也能保存", JSON.stringify(uniSave));
+  assert(
+    uniSave.sync && uniSave.sync[project] !== undefined,
+    "通用本同步到已开启的项目",
+    JSON.stringify(uniSave.sync),
+  );
+  const uniAfter = await readFile(universalMd(project), "utf8");
+  assert(uniAfter.includes("通用经验"), "通用本改动进了投影");
 
   const freq = await (await fetch(base + "/dsh-notebook/api/settings", {
     method: "POST",
@@ -241,6 +281,19 @@ try {
   });
   assert(writeHome.status === 400, "写入仍拒绝配置目录", String(writeHome.status));
 
+  // A project path that does not exist is a typo. Accepting it would make the
+  // plugin mkdir a tree wherever the text pointed.
+  const ghost = join(home, "no", "such", "dir");
+  const ghostState = await fetch(`${base}/dsh-notebook/api/toggle`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-dsh-notebook": "1" },
+    body: JSON.stringify({ project: ghost, enabled: true }),
+  });
+  assert(ghostState.status === 400, "不存在的路径被拒，不会建出目录树", String(ghostState.status));
+  assert(!existsSync(ghost), "被拒的路径没有在磁盘上留下痕迹");
+  const fileAsProject = await fetch(`${base}/dsh-notebook/api/sessions?project=${encodeURIComponent(join(project, "dsh-notebook-project.md"))}`);
+  assert(fileAsProject.status === 400, "把文件当项目也被拒", String(fileAsProject.status));
+
   console.log("审查与坏请求");
   const review = await (await fetch(`${base}/dsh-notebook/api/review?project=${encodeURIComponent(project)}`)).json();
   assert(review.ok && review.prompt.includes("自审查"), "生成审查提示");
@@ -289,6 +342,50 @@ try {
 
   const out2 = await handlers["agent/pre-step"]({ agent, messages: [], turn: 4, step: 1, signal: {} }, async () => decision);
   assert(out2 === decision && agent.inbox.nextStep.length === 1, "已有一条时不再重复排队");
+
+  console.log("cwd 优先于正文里提到的路径");
+  // A session sitting inside `project` that merely *mentions* `other` must not
+  // write its lessons into other's notebook.
+  const other = await mkdtemp(join(tmpdir(), "nbh-other-"));
+  const toggleOf = (target, enabled) =>
+    fetch(base + "/dsh-notebook/api/toggle", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-dsh-notebook": "1" },
+      body: JSON.stringify({ project: target, enabled }),
+    }).then((res) => res.json());
+  const opened = await toggleOf(other, true);
+  assert(opened?.ok === true, "另一个项目也能开启", JSON.stringify(opened).slice(0, 160));
+  await toggleOf(project, false);
+  const newcomer = { header: { cwd: project }, events: { 1: { type: "turn/start" }, 2: { type: "user/message", data: { content: [{ type: "text", text: `另见 ${other}` }] } } } };
+  const newBox = { nextStep: [], sent: [], prepend(target, message) { this.sent.push({ target, message }); this.nextStep.push(message); } };
+  await handlers["agent/pre-step"](
+    { agent: { session: newcomer, sent: newBox.sent, inbox: newBox }, messages: [], turn: 5, step: 1, signal: {} },
+    async () => decision,
+  );
+  assert(newBox.sent.length === 0, "cwd 在未开启的项目里，不去提醒别处提到的项目", newBox.sent.length);
+  assert(!existsSync(join(other, ".dsh-notebook", "notebook.json")), "没有把经验写进那个项目");
+
+  console.log("关掉再打开，提醒能恢复");
+  await toggleOf(other, false);
+  await toggleOf(project, true);
+  const seenBox = { nextStep: [], sent: [], prepend(target, message) { this.sent.push({ target, message }); this.nextStep.push(message); } };
+  const seenAgent = { session, sent: seenBox.sent, inbox: seenBox };
+  await handlers["agent/pre-step"]({ agent: seenAgent, messages: [], turn: 9, step: 1, signal: {} }, async () => decision);
+  assert(seenBox.sent.length === 1, "开着的时候正常提醒（并缓存项目）", seenBox.sent.length);
+  await toggleOf(project, false);
+  const mutedBox = { nextStep: [], sent: [], prepend(target, message) { this.sent.push({ target, message }); this.nextStep.push(message); } };
+  await handlers["agent/pre-step"](
+    { agent: { session, sent: mutedBox.sent, inbox: mutedBox }, messages: [], turn: 14, step: 1, signal: {} },
+    async () => decision,
+  );
+  assert(mutedBox.sent.length === 0, "关掉之后立刻不再提醒", mutedBox.sent.length);
+  await toggleOf(project, true);
+  const revivedBox = { nextStep: [], sent: [], prepend(target, message) { this.sent.push({ target, message }); this.nextStep.push(message); } };
+  await handlers["agent/pre-step"](
+    { agent: { session, sent: revivedBox.sent, inbox: revivedBox }, messages: [], turn: 19, step: 1, signal: {} },
+    async () => decision,
+  );
+  assert(revivedBox.sent.length === 1, "重新打开后提醒仍能恢复（缓存不许粘住已关的项目）", revivedBox.sent.length);
 
   console.log("关闭清理");
   await fetch(base + "/dsh-notebook/api/toggle", {

@@ -4,6 +4,7 @@
  * @module dsh-notebook/test/reminder
  */
 
+import { PROJECT_MD, UNIVERSAL_MD } from "../lib/notebook.js";
 import { createReminder, projectCandidates, projectFromCwd, projectFromSession, reminderText, shouldRemind, turnOf } from "../lib/reminder.js";
 
 let failed = 0;
@@ -92,6 +93,11 @@ for (const gate of ["可复现", "非显然", "有代价", "可执行"]) {
 assert(text.includes("废话") && text.includes("流水账"), "提醒点名了不该写的形状");
 assert(text.includes("candidate") && text.includes("不占上下文"), "提醒说明 candidate 只进索引、不进上下文");
 assert(!text.includes("先减后加"), "条目不多时不催删");
+
+// The projection names appear in the reminder, so a rename that misses this file
+// sends the model to write into a file nobody reads. Bind it to the constants.
+assert(text.includes(UNIVERSAL_MD) && text.includes(PROJECT_MD), "提醒里的投影名与实际文件名一致");
+assert(!text.includes("agent.md"), "提醒不再出现旧投影名");
 
 // Past the comfort limit the reminder switches job: stop adding, start cutting.
 const crowded = reminderText({ project: "D:\\p", turn: 9, every: 3, projectCount: 41 });
