@@ -180,6 +180,12 @@ const S = {
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+/** A fresh entry id. Stable ids are what lets the server keep old timestamps. */
+function newId(prefix) {
+  const rand = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10);
+  return `${prefix}-${Date.now().toString(36)}-${rand}`;
+}
+
 /** Local YYYY-MM-DD HH:mm for a stamp the server filled in; empty when there is none. */
 function dayOf(ms) {
   if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "";
@@ -398,8 +404,10 @@ document.addEventListener("click", (ev) => {
     return;
   }
   const add = ev.target.dataset.add;
-  if (add === "universal") { S.universal.push({ id: "P" + (S.universal.length + 1), title: "", status: "candidate" }); renderUniversal(); }
-  else if (add === "project") { S.projectNb.push({ area: "layout", title: "", text: "" }); renderProject(); }
+  // A positional id collides after any deletion ("P3" twice) and a missing one
+  // makes every save look like a fresh edit; both corrupt the timestamps.
+  if (add === "universal") { S.universal.push({ id: newId("P"), title: "", status: "candidate" }); renderUniversal(); }
+  else if (add === "project") { S.projectNb.push({ id: newId("E"), area: "layout", title: "", text: "" }); renderProject(); }
   const sess = ev.target.closest(".sess");
   if (sess) showSession(sess.dataset.id);
 });

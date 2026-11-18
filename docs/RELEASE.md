@@ -121,7 +121,7 @@ npm publish --access public
 **② npm 包**
 
 ```jsonc
-"dependencies": { "dsh-notebook": "^0.6.0" },
+"dependencies": { "dsh-notebook": "^0.6.1" },
 "dsh": { "profile": { "bundles": [ /* …, */ "dsh-notebook" ] } }
 ```
 
@@ -129,7 +129,7 @@ npm publish --access public
 
 ```jsonc
 "dsh-notebook": "https://github.com/<you>/dsh-notebook/releases/latest/download/dsh-notebook.tgz"
-"dsh-notebook": "github:<you>/dsh-notebook#v0.6.0"
+"dsh-notebook": "github:<you>/dsh-notebook#v0.6.1"
 ```
 
 三种都要做同一件事：**加入 `bundles`**。只装依赖不入 bundles，等于装了个不加载的包。

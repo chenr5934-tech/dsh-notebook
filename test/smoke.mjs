@@ -5,15 +5,16 @@
  */
 
 import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zstdCompressSync } from "node:zlib";
 
-import { listSessions } from "../lib/sessions.js";
+import { clearSessionCache, listSessions } from "../lib/sessions.js";
 import {
   BEGIN,
   END,
+  readProject,
   readUniversal,
   renderProject,
   renderUniversal,
@@ -118,6 +119,37 @@ try {
   });
   assert(st4.entries[0].updatedAt === st3.entries[0].updatedAt, "加新条目不影响旧条目的戳");
   assert(st4.entries[1].updatedAt >= st3.entries[0].updatedAt, "新条目有戳");
+
+  // Entries written before ids existed must keep their stamp too, or a single
+  // save re-dates the whole notebook and the timestamp means nothing.
+  const st5 = await writeProject(stampProj, {
+    project: "戳",
+    entries: [{ area: "layout", title: "没有 id 的", text: "老条目" }],
+  });
+  const bareStamp = st5.entries[0].updatedAt;
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const st6 = await writeProject(stampProj, {
+    project: "戳",
+    entries: [{ area: "layout", title: "没有 id 的", text: "老条目" }],
+  });
+  assert(st6.entries[0].updatedAt === bareStamp, "没有 id 的条目重存也不刷时间", st6.entries[0].updatedAt - bareStamp);
+  const st7 = await writeProject(stampProj, {
+    project: "戳",
+    entries: [{ area: "layout", title: "没有 id 的", text: "老条目改过" }],
+  });
+  assert(st7.entries[0].updatedAt > bareStamp, "没有 id 的条目内容改了会刷新");
+
+  // Two blank cards are two cards being filled in, not a duplicate.
+  const st8 = await writeProject(stampProj, {
+    project: "戳",
+    entries: [
+      { area: "layout", title: "", text: "" },
+      { area: "layout", title: "", text: "" },
+      { area: "risk", title: "有标题", text: "有结论" },
+    ],
+  });
+  const rendered = renderProject(st8);
+  assert((rendered.match(/^- /gm) ?? []).length === 3, "两条空卡都渲染出来，不被当重复合并");
   await rm(stampProj, { recursive: true, force: true });
 
   console.log("sync");
@@ -166,6 +198,13 @@ try {
   await writeFile(join(project, ".dsh-notebook", "notebook.json"), "{ broken", "utf8");
   const salvaged = await readUniversal(home);
   assert(Array.isArray(salvaged.entries), "损坏的 JSON 回退到空本而不是抛错");
+
+  // A broken file must be kept aside: falling back to an empty notebook and then
+  // saving over it would lose the entries the user still had.
+  const brokenRead = await readProject(project);
+  assert(Array.isArray(brokenRead.entries), "损坏的项目本也能读出一个空结构");
+  const keptBad = readdirSync(join(project, ".dsh-notebook")).filter((f) => f.includes(".corrupt-"));
+  assert(keptBad.length === 1, "损坏的文件被改名留档，不直接覆盖", keptBad.join(","));
 
   const lone = join(home, "lone.md");
   await writeFile(lone, "user content only\n", "utf8");
@@ -228,9 +267,11 @@ console.log("会话归属");
   await writeFile(file, Buffer.concat([frames(parent, `项目在 ${child} 下面`), frames(parent, "无关")]));
   assert((await listSessions(sHome, child)).length === 1, "开会话的目录是父级时，靠首帧提到的路径认领");
 
+  clearSessionCache();
   await writeFile(file, frames(parent, "无关内容"));
   assert((await listSessions(sHome, child)).length === 0, "没提到项目就不算归属");
 
+  clearSessionCache();
   await writeFile(file, frames(child, "无关内容"));
   assert((await listSessions(sHome, child)).length === 1, "cwd 就在项目里直接认领");
 
@@ -239,6 +280,7 @@ console.log("会话归属");
   const titled =
     "{" +
     JSON.stringify({ type: "session/title", data: { title: "认领一个项目" } }).slice(1);
+  clearSessionCache();
   await writeFile(
     file,
     Buffer.concat([
