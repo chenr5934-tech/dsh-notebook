@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dsh-notebook · 备忘录</title>
+<style>
+  :root{
+    --bg:#131313; --panel:#1a1a1a; --panel2:#222;
+    --line:#303030; --line2:#414141; --tx:#e9e9e9; --tx2:#a2a2a2; --tx3:#6d6d6d;
+    --accent:#5b9cf8; --ok:#4caf7d; --bad:#e06c6c;
+    --mono:ui-monospace,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.6 var(--sans);display:flex;flex-direction:column}
+  header{display:flex;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+  h1{font-size:13px;font-weight:500;margin:0;letter-spacing:.4px}
+  .tag{font-size:10px;color:var(--tx3);border:1px solid var(--line);border-radius:999px;padding:0 7px}
+  .grow{flex:1}
+  input,select,textarea{background:var(--panel2);color:var(--tx);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:12px/1.5 var(--sans);outline:none}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+  input.mono{font-family:var(--mono);font-size:11px}
+  button{background:var(--panel2);color:var(--tx);border:1px solid var(--line2);border-radius:6px;padding:5px 11px;font:12px var(--sans);cursor:pointer}
+  button:hover{border-color:var(--accent);color:#fff}
+  button.primary{background:#1d3a63;border-color:#2f5f9e;color:#cfe2ff}
+  button.primary:hover{background:#24487a}
+  button.ghost{background:transparent;border-color:var(--line)}
+  .switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;font-size:12px;color:var(--tx2)}
+  .track{width:34px;height:18px;border-radius:999px;background:#3a3a3a;position:relative;transition:background .15s;flex:none}
+  .knob{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#8a8a8a;transition:left .15s,background .15s}
+  .switch.on .track{background:#1d3a63}
+  .switch.on .knob{left:18px;background:var(--accent)}
+
+  main{flex:1;display:grid;grid-template-columns:270px 1fr;min-height:0}
+  aside{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0}
+  .aside-hd{padding:9px 12px;font-size:11px;color:var(--tx3);border-bottom:1px solid var(--line);display:flex;gap:6px;align-items:center}
+  .sessions{overflow:auto;flex:1;padding:6px}
+  .sess{padding:7px 9px;border-radius:7px;cursor:pointer;margin-bottom:3px;border:1px solid transparent}
+  .sess:hover{background:var(--panel2)}
+  .sess.on{background:#1d2a3d;border-color:#2f4f78}
+  .sess .t{font-size:12px;color:var(--tx);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sess .m{font-size:10px;color:var(--tx3);font-family:var(--mono);margin-top:2px}
+
+  section{display:grid;grid-template-columns:1fr 1fr;min-height:0}
+  .col{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+  .col:last-child{border-right:none}
+  .col-hd{padding:9px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;background:var(--panel)}
+  .col-hd .n{font-size:12px;font-weight:500}
+  .col-hd .c{font-size:10px;color:var(--tx3);font-family:var(--mono)}
+  .col-bd{overflow:auto;padding:12px;flex:1}
+  .nmrow{padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .nmrow .hint{font-size:10px;color:var(--tx3);margin-bottom:5px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px;margin-bottom:8px}
+  .card .hd{display:flex;gap:7px;align-items:center;margin-bottom:8px}
+  .id{font:10px var(--mono);color:var(--accent);width:44px;flex:none}
+  .card input.title{flex:1;min-width:0}
+  .card .when{font:10px var(--mono);color:var(--tx3);white-space:nowrap}
+  .fields{display:grid;grid-template-columns:44px 1fr;gap:5px 8px}
+  .fields label{font-size:10px;color:var(--tx3);padding-top:4px}
+  .fields textarea{width:100%;min-height:28px;resize:vertical;font:12px/1.5 var(--sans)}
+  .empty{color:var(--tx3);font-size:12px;padding:24px;text-align:center;border:1px dashed var(--line);border-radius:9px}
+  .add{margin-top:4px}
+
+  footer{display:flex;gap:10px;align-items:center;padding:9px 16px;border-top:1px solid var(--line);background:var(--panel)}
+  /* Embedded in the host panel: the sidebar already names the page, so the
+     duplicate title and the version tag go away and the chrome tightens up. */
+  body.embed header h1,body.embed header .tag{display:none}
+  body.embed header{padding:7px 12px}
+  body.embed footer{padding:7px 12px}
+  .status{flex:1;font:11px var(--mono);color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .status.ok{color:var(--ok)} .status.bad{color:var(--bad)}
+  .freq{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--tx3)}
+
+  /* Getting-started card: deliberately not modal — it floats over the page and
+     lets every control underneath stay clickable. */
+  .tour{position:fixed;right:18px;bottom:58px;width:356px;max-width:calc(100vw - 36px);
+    background:var(--panel);border:1px solid var(--line2);border-radius:12px;
+    box-shadow:0 18px 44px rgba(0,0,0,.55);padding:14px 16px;z-index:15;display:none}
+  .tour.on{display:block}
+  .tour h3{margin:0 0 3px;font:600 14px var(--sans);color:var(--tx)}
+  .tour .sub{font:11px var(--mono);color:var(--tx3);margin-bottom:10px}
+  .tour ol{margin:0 0 12px;padding-left:18px;font:12px/1.8 var(--sans);color:var(--tx2)}
+  .tour li{margin-bottom:2px}
+  .tour ol b{color:var(--tx);font-weight:600}
+  .tour code{font:11px var(--mono);color:var(--accent);background:var(--panel2);padding:0 4px;border-radius:3px}
+  .tour .foot{display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);padding-top:10px}
+  .tour .foot label{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--tx3);cursor:pointer}
+  .tour .foot .grow{flex:1}
+
+  .drawer{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:40px;z-index:20}  .drawer.on{display:flex}
+  .sheet{background:var(--panel);border:1px solid var(--line2);border-radius:12px;width:min(860px,100%);max-height:100%;display:flex;flex-direction:column}
+  .sheet-hd{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px}
+  .sheet-bd{padding:16px;overflow:auto;font:12px/1.7 var(--sans);white-space:pre-wrap;word-break:break-word}
+  .msg{border-left:2px solid var(--line2);padding:2px 0 2px 10px;margin-bottom:12px}
+  .msg.user{border-left-color:#2f5f9e}
+  .msg .who{font:10px var(--mono);color:var(--tx3);margin-bottom:3px}
+</style>
+</head>
+<body>
+<header>
+  <h1>备忘录</h1><span class="tag">dsh-notebook</span>
+  <span class="switch" id="toggle"><span class="track"><span class="knob"></span></span><span id="toggleLabel">未开启</span></span>
+  <span class="grow"></span>
+  <input id="root" class="mono" style="width:210px" title="放项目的目录，例如 D:\dsh工作区\PROJECTS-项目" placeholder="项目根（可空）">
+  <select id="folders" title="从项目根目录选择"></select>
+  <input id="project" class="mono" style="width:300px" placeholder="项目绝对路径">
+  <button id="load">载入</button>
+</header>
+
+<main>
+  <aside>
+    <div class="aside-hd"><span>会话历史</span><span class="grow"></span><span id="sessCount">0</span></div>
+    <div class="sessions" id="sessions"></div>
+  </aside>
+
+  <section>
+    <div class="col">
+      <div class="col-hd"><span class="n">通用经验本</span><span class="c" id="cUni">agent.md</span><span class="grow"></span><span class="c" id="nUni">0</span></div>
+      <div class="col-bd" id="uniBody"></div>
+      <div style="padding:0 12px 12px"><button class="ghost add" data-add="universal">+ 新增条目</button></div>
+    </div>
+    <div class="col">
+      <div class="col-hd"><span class="n">项目经验本</span><span class="c" id="cPrj">project_agent.md</span><span class="grow"></span><span class="c" id="nPrj">0</span></div>
+      <div class="nmrow"><div class="hint">项目名称：由模型按项目内容自行命名，用于区分不同项目</div><input id="projectName" style="width:100%" maxlength="60" placeholder="例如：法典图鉴 · ComfyUI-m8tags"></div>
+      <div class="col-bd" id="prjBody"></div>
+      <div style="padding:0 12px 12px"><button class="ghost add" data-add="project">+ 新增条目</button></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span class="status" id="status">就绪</span>
+  <span class="freq">更新频率
+    <select id="cadence">
+      <option value="1">每轮</option><option value="2">每 2 轮</option>
+      <option value="3" selected>每 3 轮</option><option value="5">每 5 轮</option>
+      <option value="10">每 10 轮</option>
+    </select>
+  </span>
+  <button class="ghost" id="review">自审查</button>
+  <button class="ghost" id="help">使用说明</button>
+  <button class="ghost" id="reload">重新载入</button>
+  <button class="primary" id="save">保存并同步</button>
+</footer>
+
+<div class="tour" id="tour" role="dialog" aria-modal="false" aria-labelledby="tourTitle">
+  <h3 id="tourTitle">三分钟上手</h3>
+  <div class="sub">现在就能点后面的控件，这张卡不挡路</div>
+  <ol>
+    <li>在右上角填<b>项目根</b>（你放项目的目录，例如 <code>D:\dsh工作区\PROJECTS-项目</code>），回车即记住。</li>
+    <li>从右边下拉里<b>选一个项目</b>，或直接在「项目绝对路径」里填完整路径。</li>
+    <li>打开左上角<b>开关</b>：插件才会往项目里写 <code>agent.md</code> 与 <code>project_agent.md</code> 两份投影，模型读得到。</li>
+    <li>每张卡是一条经验。<b>确立</b>的条目带全文进注入面，<b>候选</b>只留标题 —— 拿不准就先留候选。</li>
+    <li>底部可改<b>更新频率</b>：每 N 轮往会话里排一条提醒，模型会顺手维护经验本。写歪了点<b>自审查</b>让它自己挑毛病。</li>
+  </ol>
+  <div class="foot">
+    <label><input type="checkbox" id="tourNever"> 以后不再提醒</label>
+    <span class="grow"></span>
+    <button class="primary" id="tourClose">知道了</button>
+  </div>
+</div>
+
+<div class="drawer" id="drawer">
+  <div class="sheet">
+    <div class="sheet-hd"><span class="n" id="sheetTitle">详情</span><span class="grow"></span>
+      <button class="ghost" id="copy">复制</button><button class="ghost" id="close">关闭</button></div>
+    <div class="sheet-bd" id="sheetBody"></div>
+  </div>
+</div>
+
+<script>
+const S = {
+  project: "", enabled: false, state: { updateEvery: 3, activatedAt: 0 },
+  universal: [], projectNb: [], projectName: "", paths: {}, sessions: [], sheetText: "",
+};
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/** Local YYYY-MM-DD HH:mm for a stamp the server filled in; empty when there is none. */
+function dayOf(ms) {
+  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "";
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, "0");
+  const day = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return `${day} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+const fmt = (ms) => { if (!ms) return "—"; const d = new Date(ms); const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+
+function setStatus(text, kind) { const el = $("status"); el.textContent = text; el.className = "status" + (kind ? " " + kind : ""); }
+
+async function api(path, options) {
+  // The explicit header marks this as a same-origin call: the server refuses
+  // state changes that arrive without it or without a matching Origin, so a
+  // random website cannot flip switches here.
+  const res = await fetch(path, { ...options, headers: { "x-dsh-notebook": "1", ...(options?.headers ?? {}) } });
+  const body = await res.json();
+  if (!body.ok) throw new Error(body.error || "请求失败");
+  return body;
+}
+
+const STATUS = { candidate: "候选", established: "确立", retired: "退役" };
+const AREAS = { layout: "项目结构", invariant: "不变量", check: "判定", risk: "高危区", local: "本地约定" };
+
+function renderUniversal() {
+  const box = $("uniBody");
+  $("nUni").textContent = S.universal.length + " 条";
+  if (!S.universal.length) { box.innerHTML = '<div class="empty">暂无条目</div>'; return; }
+  box.innerHTML = S.universal.map((e, i) => `
+    <div class="card" data-scope="universal" data-i="${i}">
+      <div class="hd">
+        <input class="id" data-f="id" value="${esc(e.id)}">
+        <input class="title" data-f="title" value="${esc(e.title)}" placeholder="一句话症状">
+        <select data-f="status" style="width:62px">${Object.entries(STATUS).map(([v, t]) => `<option value="${v}"${(e.status || "candidate") === v ? " selected" : ""}>${t}</option>`).join("")}</select>
+        <button class="ghost" data-del="1">×</button>
+      </div>
+      <div class="fields">
+        <label>症状</label><textarea data-f="symptom">${esc(e.symptom)}</textarea>
+        <label>根因</label><textarea data-f="root">${esc(e.root)}</textarea>
+        <label>识别</label><textarea data-f="identify">${esc(e.identify)}</textarea>
+        <label>防御</label><textarea data-f="defend">${esc(e.defend)}</textarea>
+        <label>边界</label><textarea data-f="boundary">${esc(e.boundary)}</textarea>
+      </div>
+    </div>`).join("");
+}
+
+function renderProject() {
+  const box = $("prjBody");
+  $("nPrj").textContent = S.projectNb.length + " 条";
+  $("projectName").value = S.projectName;
+  if (!S.projectNb.length) { box.innerHTML = '<div class="empty">暂无条目</div>'; return; }
+  box.innerHTML = S.projectNb.map((e, i) => `
+    <div class="card" data-scope="project" data-i="${i}">
+      <div class="hd">
+        <select data-f="area" style="width:84px">${Object.entries(AREAS).map(([v, t]) => `<option value="${v}"${(e.area || "invariant") === v ? " selected" : ""}>${t}</option>`).join("")}</select>
+        <input class="title" data-f="title" value="${esc(e.title)}" placeholder="一句话约束">
+        <span class="when" title="这条经验最后改动的时间">${dayOf(e.updatedAt)}</span>
+        <button class="ghost" data-del="1">×</button>
+      </div>
+      <div class="fields"><label>内容</label><textarea data-f="text" style="min-height:52px">${esc(e.text)}</textarea></div>
+    </div>`).join("");
+}
+
+function renderSessions() {
+  $("sessCount").textContent = S.sessions.length;
+  const box = $("sessions");
+  if (!S.sessions.length) { box.innerHTML = '<div class="empty" style="padding:16px">开启后才有归属本项目的会话</div>'; return; }
+  box.innerHTML = S.sessions.map((s) => `
+    <div class="sess" data-id="${esc(s.id)}">
+      <div class="t">${esc(s.title || "（未命名会话）")}</div>
+      <div class="m">${fmt(s.updatedAt)}${s.turns ? ` · ${s.turns} 轮` : ""}</div>
+    </div>`).join("");
+}
+
+function renderAll() { renderUniversal(); renderProject(); renderSessions(); }
+
+async function load(autoPick = true) {
+  setStatus("载入中…");
+  try {
+    const q = "?project=" + encodeURIComponent(S.project);
+    const body = await api("/dsh-notebook/api/state" + q);
+    S.project = body.project || "";
+    // A stale path from a previous session must not survive: the server already
+    // refused it, so drop it here and let the picker take over.
+    if (body.invalid) { try { localStorage.removeItem("dsh-notebook:project"); } catch {} }
+    S.enabled = Boolean(body.enabled);
+    S.state = body.state || { updateEvery: 3 };
+    S.universal = body.universal?.entries || [];
+    S.projectNb = body.projectNotebook?.entries || [];
+    S.projectName = body.projectNotebook?.project || "";
+    S.paths = body.paths || {};
+    $("project").value = S.project;
+    $("root").value = body.projectsRoot || "";
+    $("toggle").classList.toggle("on", S.enabled);
+    $("toggleLabel").textContent = S.enabled ? "已开启" : "未开启";
+    $("cadence").value = String(S.state.updateEvery || 3);
+    $("cUni").textContent = (S.paths.universalMd || "agent.md").split(/[\\/]/).pop();
+    $("cPrj").textContent = (S.paths.projectMd || "project_agent.md").split(/[\\/]/).pop();
+
+    const folders = body.folders || [];
+    $("folders").innerHTML = folders.length
+      ? '<option value="">选择项目…</option>' + folders.map((f) => `<option value="${esc(f.path)}">${esc(f.label || f.name)}</option>`).join("")
+      : `<option value="">${body.projectsRoot ? "该目录下没有子目录" : "先填项目根"}</option>`;
+    $("folders").value = S.project;
+
+    // Opened from the sidebar with nothing chosen yet: one candidate is not a
+    // choice, so land on it instead of asking.
+    if (autoPick && !S.project && folders.length === 1) {
+      S.project = folders[0].path;
+      return load(false);
+    }
+    if (!S.project) {
+      renderAll();
+      setStatus(
+        body.invalid
+          ? `上次的项目不可用（${body.invalid}），已清空，请重选`
+          : (body.projectsRoot ? "在右上角选一个项目，或直接填绝对路径" : "先填项目根（放项目的目录），再从列表选项目"),
+        "bad",
+      );
+      return;
+    }
+    try { localStorage.setItem("dsh-notebook:project", S.project); } catch {}
+    renderAll();
+    const ses = await api("/dsh-notebook/api/sessions" + q).catch(() => ({ sessions: [] }));
+    S.sessions = ses.sessions || [];
+    renderSessions();
+    setStatus(`已载入：通用 ${S.universal.length} 条 / 项目 ${S.projectNb.length} 条 / 会话 ${S.sessions.length} 个`, "ok");
+  } catch (err) {
+    setStatus(String(err?.message || err), "bad");
+  }
+}
+
+async function save() {
+  setStatus("保存中…");
+  try {
+    for (const scope of ["universal", "project"]) {
+      await api("/dsh-notebook/api/save", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          project: S.project, scope, name: S.projectName,
+          entries: scope === "universal" ? S.universal : S.projectNb,
+        }),
+      });
+    }
+    await load();
+    setStatus("已保存并同步", "ok");
+  } catch (err) { setStatus(String(err.message || err), "bad"); }
+}
+
+async function toggle() {
+  try {
+    const body = await api("/dsh-notebook/api/toggle", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project: S.project, enabled: !S.enabled }),
+    });
+    S.enabled = body.enabled;
+    $("toggle").classList.toggle("on", S.enabled);
+    $("toggleLabel").textContent = S.enabled ? "已开启" : "未开启";
+    const s = body.sync || {};
+    setStatus(S.enabled ? `已开启：投影 ${s.universal} / ${s.project}` : "已关闭：投影已清除", "ok");
+    await load();
+  } catch (err) { setStatus(String(err.message || err), "bad"); }
+}
+
+function openDrawer(title, text) { S.sheetText = text; $("sheetTitle").textContent = title; $("sheetBody").textContent = text; $("drawer").classList.add("on"); }
+
+async function showSession(id) {
+  document.querySelectorAll(".sess").forEach((el) => el.classList.toggle("on", el.dataset.id === id));
+  const body = await api(`/dsh-notebook/api/session?project=${encodeURIComponent(S.project)}&id=${encodeURIComponent(id)}`);
+  const s = body.session;
+  S.sheetText = s.messages.map((m) => `[${m.role === "user" ? "用户" : "助手"}] ${m.text}`).join("\n\n");
+  $("sheetTitle").textContent = s.title || "会话";
+  $("sheetBody").innerHTML = s.messages.map((m) => `<div class="msg ${m.role === "user" ? "user" : ""}"><div class="who">${m.role === "user" ? "用户" : "助手"} · ${fmt(m.time)}</div>${esc(m.text)}</div>`).join("") || '<div class="empty">没有可显示的消息</div>';
+  $("drawer").classList.add("on");
+}
+
+async function review() {
+  const body = await api("/dsh-notebook/api/review?project=" + encodeURIComponent(S.project));
+  openDrawer("自审查 · 交给会话模型执行", body.prompt);
+}
+
+document.addEventListener("input", (ev) => {
+  if (ev.target.id === "projectName") { S.projectName = ev.target.value; return; }
+  const card = ev.target.closest(".card");
+  if (!card) return;
+  const f = ev.target.dataset.f;
+  if (!f) return;
+  const list = card.dataset.scope === "universal" ? S.universal : S.projectNb;
+  list[Number(card.dataset.i)][f] = ev.target.value;
+});
+
+document.addEventListener("change", (ev) => {
+  if (ev.target.id === "cadence") {
+    api("/dsh-notebook/api/settings", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project: S.project, updateEvery: Number(ev.target.value) }),
+    }).then(() => setStatus(`更新频率：每 ${ev.target.value} 轮`, "ok"))
+      .catch((err) => setStatus(String(err.message || err), "bad"));
+    return;
+  }
+  const card = ev.target.closest(".card");
+  if (card && ev.target.dataset.f) {
+    const list = card.dataset.scope === "universal" ? S.universal : S.projectNb;
+    list[Number(card.dataset.i)][ev.target.dataset.f] = ev.target.value;
+  }
+});
+
+document.addEventListener("click", (ev) => {
+  if (ev.target.dataset.del) {
+    const card = ev.target.closest(".card");
+    const list = card.dataset.scope === "universal" ? S.universal : S.projectNb;
+    list.splice(Number(card.dataset.i), 1);
+    if (card.dataset.scope === "universal") renderUniversal(); else renderProject();
+    return;
+  }
+  const add = ev.target.dataset.add;
+  if (add === "universal") { S.universal.push({ id: "P" + (S.universal.length + 1), title: "", status: "candidate" }); renderUniversal(); }
+  else if (add === "project") { S.projectNb.push({ area: "layout", title: "", text: "" }); renderProject(); }
+  const sess = ev.target.closest(".sess");
+  if (sess) showSession(sess.dataset.id);
+});
+
+$("load").addEventListener("click", () => { S.project = $("project").value.trim(); load(); });
+$("project").addEventListener("keydown", (ev) => { if (ev.key === "Enter") { S.project = ev.target.value.trim(); load(); } });
+$("root").addEventListener("keydown", (ev) => { if (ev.key === "Enter") ev.target.blur(); });
+$("reload").addEventListener("click", load);
+$("save").addEventListener("click", save);
+$("toggle").addEventListener("click", toggle);
+$("review").addEventListener("click", () => review().catch((e) => setStatus(String(e.message || e), "bad")));
+const TOUR_KEY = "dsh-notebook:tour";
+function tourMuted() { try { return localStorage.getItem(TOUR_KEY) === "off"; } catch { return false; } }
+function closeTour(remember) {
+  if (remember) { try { localStorage.setItem(TOUR_KEY, "off"); } catch {} }
+  $("tour").classList.remove("on");
+}
+$("tourClose").addEventListener("click", () => closeTour($("tourNever").checked));
+$("help").addEventListener("click", () => { $("tourNever").checked = tourMuted(); $("tour").classList.add("on"); });
+
+$("close").addEventListener("click", () => $("drawer").classList.remove("on"));$("drawer").addEventListener("click", (ev) => { if (ev.target.id === "drawer") $("drawer").classList.remove("on"); });
+$("copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(S.sheetText); setStatus("已复制", "ok"); }
+  catch { setStatus("复制失败，请手动选择", "bad"); }
+});
+$("folders").addEventListener("change", (ev) => { if (!ev.target.value) return; S.project = ev.target.value; $("project").value = S.project; load(); });
+$("root").addEventListener("change", async (ev) => {
+  const value = ev.target.value.trim();
+  setStatus("保存项目根…");
+  try {
+    await api("/dsh-notebook/api/settings", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ projectsRoot: value }),
+    });
+    if (S.project && !S.project.startsWith(value)) S.project = "";
+    await load(false);
+  } catch (err) { setStatus(String(err?.message || err), "bad"); }
+});
+
+const bootQuery = new URLSearchParams(location.search);
+if (bootQuery.has("embed")) document.body.classList.add("embed");
+let savedProject = "";
+try { savedProject = localStorage.getItem("dsh-notebook:project") || ""; } catch {}
+S.project = bootQuery.get("project") || savedProject || "";
+load().catch((err) => setStatus(String(err.message || err), "bad"));
+
+// First-open guide. It is remembered only when the box was ticked, so leaving it
+// alone means it shows again next time — the choice belongs to the reader.
+if (!tourMuted()) setTimeout(() => $("tour").classList.add("on"), 450);
+</script>
+</body>
+</html>

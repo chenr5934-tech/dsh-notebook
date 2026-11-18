@@ -1,0 +1,31 @@
+# dsh-notebook 挂载声明（bundle patch）
+#
+# 本文件由 dsh 在加载 bundle 时自动叠加，用户不需要手动合并进自己的 cordis.patch.yml。
+# 安装后必须重启 dsh；重复 insert 会 already queued。
+
+# 让指令加载器认得本插件的两个投影文件。
+# 默认候选只有 AGENTS.md / CLAUDE.md，不补这两项投影不会被模型读到。
+# 注意：这里是整体替换——若用户层 patch 也写了 instructionFileCandidates，
+# 以用户层为准，那两项就得由用户自己补进数组里。
+- id: agent-instructions
+  config:
+    instructionFileCandidates:
+      - AGENTS.md
+      - CLAUDE.md
+      - agent.md
+      - project_agent.md
+    localInstructionFileCandidates:
+      - AGENTS.local.md
+      - CLAUDE.local.md
+
+- insert:
+    - id: dsh-notebook
+      name: dsh-notebook
+      config:
+        # 项目根目录（其下每个子目录是一个项目）。留空则读 $DSH_HOME/notebook/config.json
+        # 里界面保存的值；两处都没有就是空——界面会让你填，不会拿宿主进程的工作目录凑数。
+        projectsRoot: ""
+        # 没有会话上下文时（启动同步、命令行不带参数）默认操作哪个项目。留空则不预设。
+        defaultProject: ""
+        # 启动时对 defaultProject 做一次投影同步。没有 defaultProject 时无操作。
+        syncOnStart: true

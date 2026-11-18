@@ -1,0 +1,74 @@
+{
+  "name": "dsh-notebook",
+  "version": "0.5.5",
+  "description": "Per-project experience notebook for the agent: read before work, write after. Visual manager for a universal and a project notebook, with a cadence reminder.",
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "./icon.svg",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chenr5934-tech/dsh-notebook.git"
+  },
+  "homepage": "https://github.com/chenr5934-tech/dsh-notebook#readme",
+  "bugs": {
+    "url": "https://github.com/chenr5934-tech/dsh-notebook/issues"
+  },
+  "author": "chenr5934-tech",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "ui",
+    "locale",
+    "docs",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/notebook.js && node --check lib/sessions.js && node --check lib/reminder.js && node --check client.js",
+    "test": "node test/manifest.mjs && node test/smoke.mjs && node test/reminder.mjs && node test/harness.mjs",
+    "prepack": "npm run check && npm test"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "agent",
+    "notebook",
+    "memory",
+    "context"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0",
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "_comment": [
+    "dsh.bundle.patch —— 声明本包是 bundle，安装后 cordis.patch.yml 自动进层栈；缺这一项 dsh 不会加载本插件。",
+    "exports['./locale/*.json'] 与 exports['./icon'] —— 插件详情页读标题、描述与图标的入口，缺任一项宿主会拒绝渲染。",
+    "files —— npm publish 的白名单；test/、scripts/、.dsh-notebook/ 与两份投影 md 都不入包。",
+    "engines.dsh —— 对宿主版本的要求（参照 dsh-ops 的写法）。",
+    "console 侧零依赖：不 import 任何 @deepseek-ai/*，故无 peerDependencies。"
+  ]
+}
